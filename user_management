@@ -1,0 +1,238 @@
+
+# USER MANAGEMENT
+
+#!/bin/bash
+
+
+# test for users with no password
+pw_check(){
+ USERS="$(cut -d: -f1 /etc/passwd)"
+
+ for u in $USERS
+  do
+    passwd -S $u | grep -Ew "NP" >/dev/null
+   if [ $? -eq 0 ]; then
+    echo " "
+    echo "User account $u does not have a password. The account has been locked."
+     passwd -l $u # Report results and lock accounts without passwords
+   else
+   continue
+   fi
+  done
+}
+
+# check for user accounts that are expired
+exp_check(){
+
+  echo "*********************"
+  echo "****** Results ******"
+  echo "*********************"
+
+  # Parse data from shadow file into readable tmp file
+  cat /etc/shadow | cut -d: -f1,8 | sed /:$/d > /tmp/expirelist.txt
+  totalaccounts=`cat /tmp/expirelist.txt | wc -l`
+
+  # Loop to find expired accounts and report them
+  for((i=1; i<=$totalaccounts; i++ ))
+    do
+      userinfo=`head -n $i /tmp/expirelist.txt | tail -n 1`
+      username=`echo $userinfo | cut -f1 -d:`
+      userexp=`echo $userinfo | cut -f2 -d:`
+      userexpireinseconds=$(( $userexp * 86400 ))
+      todaystime=`date +%s`
+      if [ $userexpireinseconds -le $todaystime ] ;then
+        echo  "The user account $username is expired"
+    fi
+done
+}
+
+# report expiration date of all accounts, as well as those that do not expire
+exp_report(){
+
+  echo "*********************"
+  echo "****** Results ******"
+  echo "*********************"
+
+  # Parse data from shadow file into readable tmp file
+  cat /etc/shadow | cut -d: -f1,8  > /tmp/allexp.txt
+  totalaccounts=`cat /tmp/allexp.txt | wc -l`
+
+  # Loop to find account expiration dates and report them
+  for((i=1; i<=$totalaccounts; i++ ))
+    do
+      userinfo=`head -n $i /tmp/allexp.txt | tail -n 1`
+      username=`echo $userinfo | cut -f1 -d:`
+      userexp=`echo $userinfo | cut -f2 -d:`
+      if [ -z "$userexp" ]; then
+         echo  "Account $username does not expire."
+      else
+        userdate=`date -d "01/01/1970 +"$userexp"days" +%F` # convert expiration dates to YYYY-MM-DD
+        echo "Account $username expires on $userdate."
+      fi
+    done
+}
+
+# Lock/unlock user accounts
+account_lock(){
+
+  # Function menu
+  while true; do
+   echo " "
+   echo "***********************"
+   echo "User account management"
+   echo "***********************"
+   echo " "
+   echo "Please choose an option:"
+   echo " "
+   echo "1. Lock account"
+   echo "2. Unlock account."
+   echo "q. Return to main menu"
+ read n
+    case "$n" in
+     1) clear &&  echo "Enter account to lock: "
+        read u
+        passwd -l "$u"
+        echo " " ;;
+     2) clear && echo "Enter account to unlock: "
+        read u
+        passwd -u "$u"
+        echo " " ;;
+     q) clear &&  break;;
+     *) clear && echo "Invalid entry"
+        echo " "
+        ;;
+    esac
+   done
+}
+
+# set user expiration date from command line
+acc_expire(){
+  echo " "
+  echo "*****************************"
+  echo "Account expiration management"
+  echo "*****************************"
+  echo " "
+
+  echo "Enter name of user:"
+  read user
+  echo "Enter expiration date (YYYY-MM-DD):"
+  read exp
+  if [ "$user" == "root" ]; then
+    echo "Cannot change root password."
+  else
+    chage -E "$exp" "$user"
+  fi
+}
+
+# Add a user to the system
+add_account(){
+  # menu
+  echo "**********************"
+  echo "1. Add info manually"
+  echo "2. Add info from a file"
+  echo "q. Return to main menu"
+  echo "**********************"
+
+  read answer
+  case $answer in
+    1)
+      # Prompt for user info
+      echo "What is the desired username?"
+      read USERNAME
+
+      echo "What is the user's home directory?"
+      read USERDIR
+
+      echo "What is the user's password?"
+      read USER_PW
+
+      echo "What is the user's full name?"
+      read USER_FULLNAME
+
+      echo "What is the user account's expiration date?"
+      echo "(Must be in YYYY-MM-DD format)"
+      read USER_EXP
+      # Add variables into new user account
+      useradd -d "$USERDIR" -c "$USER_FULLNAME" -p "$USER_PW" -e "$USER_EXP" "$USERNAME"
+
+      # Force password reset upon first login
+      passwd -e "$USERNAME"
+      clear
+    ;;
+   2)  # Prompt for file from command line
+      echo "Where is the file located?"
+       read FILE
+         while read line
+           do
+             USERNAME=$(echo "$line" | cut -d: -f1)
+             USERDIR=$(echo "$line" | cut -d: -f2)
+             USER_PW=$(echo "$line" | cut -d: -f3)
+             USER_FULLNAME=$(echo "$line" | cut -d: -f4)
+             USER_EXP=$(echo "$line" | cut -d: -f5)
+
+       if [ -z "$USERDIR" ]; then
+        # Break loop as soon as READ encounters empty variable
+         break
+       else
+        # add user info to new user accounts
+         useradd -d "$USERDIR" -c "$USER_FULLNAME" -p "$USER_PW" -e "$USER_EXP" "$USERNAME"
+       fi
+
+      done < "$FILE"
+ clear
+    ;;
+   *) break ;;
+  esac
+}
+
+prog_menu(){
+# Program menu
+while true; do
+  echo " "
+  echo "**********************"
+  echo "User Management System"
+  echo "**********************"
+  echo " "
+  echo "Please select an option"
+  echo " "
+  echo "    1) Report all users without a password."
+  echo "    2) Report all expired accounts."
+  echo "    3) Report expiration date/time for all accounts."
+  echo "    4) Lock or unlock a user account. "
+  echo "    5) Change the expiration date of an account."
+  echo "    6) Add user account(s)."
+  echo "    q) Quit."
+
+read n
+case "$n" in
+  1) clear && pw_check ;;
+  2) clear && exp_check ;;
+  3) clear && exp_report ;;
+  4) clear && account_lock ;;
+  5) clear && acc_expire ;;
+  6) clear && add_account ;;
+  q) clear && echo "You chose to quit"
+     exit 1 ;;
+  *) clear && echo "Invalid option" ;;
+esac
+done
+}
+
+# Capture flag for logging option
+if [ $# -gt 0 ]; then
+  case "$1" in
+  -l)
+     echo "What is the name of the logfile?"
+     read logfile
+     exec 1> $logfile 2>&1 # Send log info to named logfile
+     set -x
+     prog_menu # execute main program
+     ;;
+   *)
+     echo "$1 is not a recognized flag"
+     ;;
+  esac
+else
+  prog_menu # execute main program without logging option
+fi
+
